@@ -1,0 +1,329 @@
+Example：
+params：
+1.size			显示应该返回的结果数量，默认是 10
+2.from			显示应该跳过的初始结果数量，默认是 0
+3.pretty		回执美观
+4.0_search		搜索
+4.1_validate/query	验证查询
+4.2_mget		取回多个文档
+4.3
+6.explain		释义
+7._all			全局数据
+8.ip:port/gb,us/user,tweet/_search
+  ip:port/g*/user,tweet/_search
+
+Tip:
+
+1.curl -XGET 'ip:port/_flush?pretty'	刷新translog
+
+
+------------------------------------------------------------------------------------------------------------------------------------------
+一、
+curl -XPOST 'ip:port/index/type/_bulk?pretty' -H 'Content-Type: application/json' -d'				执行多个请求
+{ "index": { "_id": 1 ,"_version":3 }}
+{"name":"The quick brown fox","age":18,"sex":2,"addr":"北京","date":1388534400000}
+{ "index": { "_id": 2 ,"_version":3 }}
+{"name":"The quick brown fox jumps over the lazy dog","age":19,"sex":1,"addr":"上海","date":1391212800000}
+{ "index": { "_id": 3 ,"_version":3 }}
+{"name":"The quick brown fox jumps over the quick dog","age":22,"sex":1,"addr":"北京","date":1398902400000}
+{ "index": { "_id": 4 ,"_version":3 }}
+{"name":"Brown fox brown dog","age":11,"sex":1,"addr":"北京","date":1404172800000}
+
+{"delete":{"_id":1}}
+{"update":{"_id":1}}
+{"doc":{"age":81}}
+'
+
+------------------------------------------------------------------------------------------------------------------------------------------
+二、
+curl -XGET 'ip:port/_mget?pretty' -H 'Content-Type: application/json' -d'					取回多个文档
+{
+   "docs" : [
+      {
+         "_index" : "website",
+         "_type" :  "blog",
+         "_id" :    2
+      },
+      {
+         "_index" : "website",
+         "_type" :  "pageviews",
+         "_id" :    1,
+         "_source": "views"
+      }
+   ]
+}
+'
+
+------------------------------------------------------------------------------------------------------------------------------------------
+三、
+curl -XGET 'ip:port/index/type/_validate/query?explain&pretty' -H 'Content-Type: application/json' -d'		验证查询
+{
+   "query": {
+      "tweet" : {
+         "match" : "really powerful"
+      }
+   }
+}
+'
+
+------------------------------------------------------------------------------------------------------------------------------------------
+四、
+analyzer=ik_max_word	最大粒度
+analyzer=ik_smart	适中粒度
+curl -XGET 'ip:port/index/_analyze?analyzer=ik_max_word&pretty' -H 'Content-Type: application/json' -d'		分词器的测试
+{
+	"text":"好记性不如烂笔头"
+}
+'
+
+------------------------------------------------------------------------------------------------------------------------------------------
+五、
+curl -XGET 'ip:port/index/type/_search?size=5&from=0&pretty' -H 'Content-Type: application/json' -d'		搜索
+
+
+0.sort
+{
+	"sort": { "age": { "order": "asc" }}
+}
+0.version,from,size
+{
+	"version":true,
+	"from":1,
+	"size":3
+}
+0.aggs聚合-每种性别，每个地方的年龄sum、avg
+{
+	"aggs":{
+		"every_sex":{
+			"terms": {
+				"field": "sex"
+			},
+			"aggs": { 
+				"every_addr":{
+					"terms":{
+			                        "field":"addr"
+					},
+					"aggs":{
+			                        "sum_age": {
+							"sum": {
+								"field": "age" 
+							}
+						},
+			                        "avg_age": { 
+							"avg": {
+				                            "field": "age" 
+							}
+						},
+			                        "max_age": { 
+							"max": {
+				                            "field": "age" 
+							}
+						},
+			                        "min_age": { 
+							"min": {
+				                            "field": "age" 
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+A.单个值
+"terms": {
+	"field":"price",
+	"size":3,
+	"order":{
+		"_count" : "asc" 
+	}
+}
+B.区间
+"histogram":{
+	"field": "price",
+	"interval": 20000,
+	"order":{
+		"_count" : "asc" 
+	}
+}
+C.min、max、avg、sum等的集合
+"extended_stats": {
+	"field": "age" 
+}
+D.按时间
+"date_histogram": {
+	"field": "date",
+	"interval": "month", 
+	"format": "yyyy-MM-dd",
+	"min_doc_count" : 1
+}
+E.过滤器直接在aggs中
+"aggs":{
+	"every_sex":{
+		"filter":{"range": {"date": {"from": 1388534400000}}
+		}
+	}
+}
+F.只过滤搜索结果
+"post_filter": { 
+	"range": {
+		"date": {
+			"from": 1404172900000
+		}
+	}
+}
+G.近似聚合，大数据 + 实时
+"cardinality" : {
+	"field" : "age"
+}
+
+Tip：	filter		对aggs有过滤作用，
+	post_filter	对aggs无过滤作用，只过滤搜索结果
+	query		对aggs无过滤作用
+	
+
+0.geography	在10km的范围内，以距_geo_distance的距离排序，精度为5*5km，并返回每个单元格的边框lon和lat
+{
+  "query": {
+    "bool": {
+      "filter": {
+         "geo_distance": {
+          "distance": "10km", 
+          "location": { 
+            "lat":  40.715,
+            "lon": -73.988
+          }
+        }
+      }
+    }
+  },
+  "sort": [
+    {
+      "_geo_distance": {
+        "location": { 
+          "lat":  40.715,
+          "lon": -73.998
+        },
+        "order":         "asc",
+        "unit":          "km", 
+        "distance_type": "plane" 
+      }
+    }
+  ],
+  "aggs": {
+    "new_york": {
+      "geohash_grid": { 
+        "field":     "location",
+        "precision": 5
+      },
+      "aggs": {
+        "cell": { 
+          "geo_bounds": {
+            "field": "location"
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+1.{query｝DSL Sign
+
+2.{"query":{"match_all": {}}}				精确，全文
+
+3.{"query":{"match": { "name": "you" }}}
+  {"query":{
+	"match":{
+		"name":{
+			"query":"BROWN DOG!",
+			"operator": "and"		提高精度
+  }}}}
+
+4.{"query":{"multi_match": { 
+                    "query": "you" ,
+                    "fields":["name",age]
+		}}}
+
+5.{"query":{"term":{"age":18}}}				精确
+
+6.{"query":{"terms":{"age":[18,19,20]}}}		精确
+
+7.{"query":{"exists":{"field":"name"}}}			精确
+8.{"query":{
+	"range" : {
+		"age":{
+			"gt":30,
+			"lt":30,
+			"gte":30,
+			"lte":30,
+			"from":18,
+			"to":23,
+			"include_lower":true,
+			"include_upper":false
+	}
+}}							精确
+
+9.bool查询语句
+
+must：必须匹配
+must_not：必须不 匹配 
+should：如果满足这些语句中的任意语句，将增加 _score
+filter：必须 匹配，但它以不评分、过滤模式来进行。
+
+
+！"minimum_should_match": "75%"				精度控制	区域：bool
+！"boost": 3						权重控制	区域：field
+		2-7可放入
+{"query":{
+	"bool": {
+		"must":     { "match": { "title": "how to make millions" }},		全文
+		"must_not": { "match": { "tag":   "spam" }},
+		"should": [
+		    { "match": { "tag": "starred" }},
+		    { "range": { "date": { "gte": "2014-01-01" }}}
+		],
+		"filter":   {							精确
+			"bool": { 
+				"must": [
+					{ "range": { "date": { "gte": "2014-01-01" }}},
+					{ "range": { "price": { "lte": 29.99 }}}
+				],
+				"must_not": [
+					{ "term": { "category": "ebooks" }}
+				]
+			}
+		}				
+	}
+}}
+
+10.dis_max	分离最大化查询		,从左到右，分段搜索，采用单个最佳匹配字段，而忽略其他的匹配，只可意会不可言传
+{
+    "query": {
+        "dis_max": {
+            "queries": [
+                { "match": { "title": "Brown fox" }},
+                { "match": { "body":  "Brown fox" }}
+            ]
+        }
+    }
+}
+
+11.tie_breaker	时dis_max和bool的折中选择
+{
+    "query": {
+        "dis_max": {
+            "queries": [
+                { "match": { "title": "Quick pets" }},
+                { "match": { "body":  "Quick pets" }}
+            ],
+            "tie_breaker": 0.3
+        }
+    }
+}

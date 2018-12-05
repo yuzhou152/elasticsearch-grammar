@@ -1,0 +1,188 @@
+2.1-create
+curl -XPOST http://ip:port/partment/employee/1	-d '{"name":"Smith","age":18,"sex":1}'
+可不设DOM_id
+2.3-delete
+curl -XDELETE http://ip:port/partment/employee/1
+2.2-update
+curl -XPOST http://ip:port/partment/employee/1/_update	-d '{"doc":{"name":"Smith","age":22,"sex":0}}'
+curl -XPUT http://ip:port/partment/employee/1/_update	-d '{"name":"Smith","age":22,"sex":0}'
+2.4-read
+curl -XGET http://ip:port/partment/employee/1
+2.5-批量更新
+curl -XPOST http://ip:port/partment/employee/_bulk -d '
+{"delete":{"_id":1}}
+{"create":{"_id":1}}
+{"name":"Smith","age":18,"sex":1}
+{"index":{"_id":1}}
+{"name":"Smith Li","age":81,"sex":0}
+{"update":{"_id":1}}
+{"doc":{"age":81}}
+'
+2.6-版本控制
+-内部_和当前  版本号一致		报错返回409
+curl -XPUT http://ip:port/partment/employee/1?version=13 -d '{"doc":{"age":88}}'
+-外部_比当前  版本号大就可执行		报错返回409
+curl -XPUT http://ip:port/partment/employee/1?version=20&version_type=external -d '{"name":"Smith Li","age":800,"sex":1}'
+
+------------------------------------------------------------------------------------------------------------------------------------------
+3.1-简易搜索
+curl -XGET http://ip:port/partment/employee/_search?pretty
+curl -XGET http://ip:port/partment/employee/1?_source=name
+3.2-批量搜索
+curl -XGET http://ip:port/_mget?pretty -d '
+{"docs":[
+	{"_index":"partment","_type":"employee","_id":"1","_source":"name"},
+	{"_index":"partment","_type":"employee","_id":"2"}
+]}'
+3.2-条件搜索
+curl -XGET http://ip:port/partment/employee/_search?pretty -d '{
+	"version":true,
+	"from":1,
+	"size":3,
+	"filter":{
+		"range" : {
+			"age":{"gt":30}
+			"age":{"lt":30},
+			"age":{"gte":30},
+			"age":{"lte":30},
+		},
+		"range":{
+			"age":{
+				"from":18,
+				"to":23,
+				"include_lower":true,
+				"include_upper":false
+			}
+		},
+		"bool":{
+			"must":{
+				"term":{
+					"name":"like"
+					}
+				},
+			"must_not":{
+				"term":{
+					"age":30
+					}
+				},
+			"should":{
+				"term":{
+					"name":"like",
+					"sex":0
+				}
+			}
+		},
+		"exists":{
+			"field":"name"
+		}
+	},
+	"partial_fields":{
+		"partial":{
+			"include":["se*"],
+			"exclude":["name","age"]
+		}
+	},
+	"sort":{
+		"age":{
+			"order":"asc"
+		}
+	}
+}'
+3.3-全文搜索-段落搜索-模糊查询
+
+Tip:先分词，再匹配
+Tip:选其一
+	fuzzy:模糊查询
+	fuzzy_like_this:模糊查询-多字段
+curl -XGET http://ip:port/partment/employee/_search?pretty -d 
+{
+	"query" : {
+		"match" : {
+			"name" : "like"
+		},
+		"match_phrase" : {
+			"name" : "like"
+		},
+		"terms" : {
+			"name" : ["like","one"],
+			"minimum_match":1
+		},
+		"wildcard":{
+			"name":"lik?*"
+		},
+		"fuzzy":{
+			"name":{
+				"value":"lik",
+				"min_similarity":0.5,
+				"prefix_length":1,
+				"max_expansions":1
+			}
+		},
+		"fuzzy_like_this":{
+			"fields":["name"],
+			"like_text":"lik"
+		}
+	}
+}
+3.4-综合搜索
+curl -XGET http://ip:port/partment/employee/_search?pretty -d 
+{
+	"query":{
+		"filtered":{
+			"filter":{
+				"range":{
+					"age":{"gt":30}
+				}
+			},"cache":true,
+			"query":{
+				"match":{
+					"name":"Smith"
+				}
+			}
+		}
+	}
+}
+
+------------------------------------------------------------------------------------------------------------------------------------------
+4.1-简单统计
+curl -XGET http://ip:port/partment/employee/_search?pretty -d 
+{
+	"aggs":{
+		"all_interests":{
+			"terms":{"name":"Smith"}
+		}
+	}
+}
+4.2-叠层统计
+curl -XGET http://ip:port/partment/employee/_search?pretty -d 
+{
+	"aggs":{
+		"all_interests":{
+			"terms":{"field":"name"},
+			"aggs":{
+				"avg_age":{
+					"avg":{"field":"age"}
+				}
+			}
+		}
+	}
+}
+4.3-综合统计
+curl -XGET http://ip:port/partment/employee/_search?pretty -d 
+{
+	"aggs":{
+		"all_interests":{
+			"terms":{"name":"Smith"}
+		}
+	}
+	"query": {
+		"match": {
+			"last_name": "smith"
+		}
+	}
+}
+
+------------------------------------------------------------------------------------------------------------------------------------------
+对比sql和DSL的区别
+ select		count(*)	from	table_one		where	age > 10	group by age	order by asc
+		partial_fields		index_type_dom		filter+query(优势)	aggs		sort
